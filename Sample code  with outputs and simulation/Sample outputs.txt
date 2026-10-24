@@ -1,0 +1,30 @@
+A-WHRS ESP32 monitoring prototype
+PWM control DISABLED.
+Verify sensor calibration before trusting readings.
+
+--------------------------------
+Temperature sensor output: 750.0 mV
+Estimated temperature (TMP36 calibration): 25.0 C
+TEG voltage estimate: 5.20 V
+TEG current estimate: 0.35 A
+Estimated electrical power: 1.82 W
+Status: Monitoring.
+PWM remains disabled.
+
+--------------------------------
+Temperature sensor output: 1000.0 mV
+Estimated temperature (TMP36 calibration): 50.0 C
+TEG voltage estimate: 7.80 V
+TEG current estimate: 0.50 A
+Estimated electrical power: 3.90 W
+Status: Monitoring.
+PWM remains disabled.
+
+--------------------------------
+Temperature sensor output: 1350.0 mV
+Estimated temperature (TMP36 calibration): 85.0 C
+TEG voltage estimate: 10.40 V
+TEG current estimate: 0.65 A
+Estimated electrical power: 6.76 W
+WARNING: High temperature.
+PWM remains disabled.

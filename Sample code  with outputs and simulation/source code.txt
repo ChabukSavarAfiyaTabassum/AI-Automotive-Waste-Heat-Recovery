@@ -1,0 +1,169 @@
+
+/*
+  A-WHRS: ESP32 DevKit sensor monitoring prototype
+  Framework: Arduino-ESP32 core 3.x
+
+  SAFETY:
+  - Monitoring only; no MPPT or battery charging control yet.
+  - PWM is held LOW and is NOT a guaranteed converter shutdown.
+  - Do not connect a vehicle battery or converter until the
+    electrical interface and protection design are verified.
+*/
+
+#include <Arduino.h>
+#include <math.h>
+
+// ESP32 ADC1 pins
+constexpr int TEMP_PIN    = 34;
+constexpr int TEG_VOLT_PIN = 35;
+constexpr int TEG_CURR_PIN = 32;
+
+// PWM pin reserved for future converter integration.
+// Do not connect until the converter interface is confirmed.
+constexpr int PWM_PIN = 18;
+
+// ADC settings
+constexpr float ADC_MAX_COUNT = 4095.0f;
+
+// Example voltage divider:
+// 100k from TEG+ to ADC node, 15k from ADC node to GND.
+// Ratio = (100k + 15k) / 15k = 7.6667.
+// These values are examples only; use your actual resistor values.
+constexpr float VOLTAGE_DIVIDER_RATIO = 7.6667f;
+
+// TMP36 example calibration:
+// 500 mV at 0°C; 10 mV per °C.
+// This is NOT valid for every analog temperature sensor.
+constexpr float TEMP_ZERO_C_MV = 500.0f;
+constexpr float TEMP_MV_PER_C = 10.0f;
+
+// Example current sensor calibration.
+// Replace with your actual sensor's zero-current voltage
+// and sensitivity from its datasheet.
+constexpr float CURRENT_ZERO_MV = 1650.0f;
+constexpr float CURRENT_MV_PER_AMP = 100.0f;
+
+constexpr float MAX_EXPECTED_TEG_VOLTAGE = 24.0f;
+constexpr float TEMP_WARNING_C = 80.0f;
+constexpr float TEMP_CUTOFF_C = 350.0f;
+
+constexpr unsigned long SAMPLE_INTERVAL_MS = 500;
+
+unsigned long lastSampleMs = 0;
+
+float readAdcPinMilliVolts(int pin) {
+  // analogReadMilliVolts() uses ESP32 ADC calibration support
+  // where available in the installed Arduino core.
+  uint32_t totalMv = 0;
+
+  for (int i = 0; i < 16; i++) {
+    totalMv += analogReadMilliVolts(pin);
+    delayMicroseconds(200);
+  }
+
+  return totalMv / 16.0f;
+}
+
+float temperatureFromTmp36(float sensorMv) {
+  return (sensorMv - TEMP_ZERO_C_MV) / TEMP_MV_PER_C;
+}
+
+float readTegVoltage(float adcMv) {
+  return (adcMv / 1000.0f) * VOLTAGE_DIVIDER_RATIO;
+}
+
+float readTegCurrent(float sensorMv) {
+  return (sensorMv - CURRENT_ZERO_MV) / CURRENT_MV_PER_AMP;
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  analogReadResolution(12);
+
+  // Set ADC attenuation for the intended input range.
+  // Confirm compatibility with your ESP32 variant and core.
+  analogSetPinAttenuation(TEMP_PIN, ADC_11db);
+  analogSetPinAttenuation(TEG_VOLT_PIN, ADC_11db);
+  analogSetPinAttenuation(TEG_CURR_PIN, ADC_11db);
+
+  pinMode(TEMP_PIN, INPUT);
+  pinMode(TEG_VOLT_PIN, INPUT);
+  pinMode(TEG_CURR_PIN, INPUT);
+
+  // Monitoring-only mode. LOW does not guarantee converter shutdown.
+  pinMode(PWM_PIN, OUTPUT);
+  digitalWrite(PWM_PIN, LOW);
+
+  Serial.println();
+  Serial.println("A-WHRS ESP32 monitoring prototype");
+  Serial.println("PWM control DISABLED.");
+  Serial.println("Verify sensor calibration before trusting readings.");
+}
+
+void loop() {
+  const unsigned long now = millis();
+
+  if (now - lastSampleMs < SAMPLE_INTERVAL_MS) {
+    return;
+  }
+
+  lastSampleMs = now;
+
+  const float tempMv = readAdcPinMilliVolts(TEMP_PIN);
+  const float voltageAdcMv = readAdcPinMilliVolts(TEG_VOLT_PIN);
+  const float currentMv = readAdcPinMilliVolts(TEG_CURR_PIN);
+
+  const float temperatureC = temperatureFromTmp36(tempMv);
+  const float tegVoltageV = readTegVoltage(voltageAdcMv);
+  const float tegCurrentA = readTegCurrent(currentMv);
+
+  Serial.println("--------------------------------");
+
+  Serial.print("Temperature sensor output: ");
+  Serial.print(tempMv, 1);
+  Serial.println(" mV");
+
+  Serial.print("Estimated temperature (TMP36 calibration): ");
+  Serial.print(temperatureC, 1);
+  Serial.println(" C");
+
+  Serial.print("TEG voltage estimate: ");
+  Serial.print(tegVoltageV, 2);
+  Serial.println(" V");
+
+  Serial.print("TEG current estimate: ");
+  Serial.print(tegCurrentA, 2);
+  Serial.println(" A");
+
+  if (!isfinite(temperatureC) ||
+      !isfinite(tegVoltageV) ||
+      !isfinite(tegCurrentA) ||
+      tegVoltageV < 0.0f ||
+      tegVoltageV > MAX_EXPECTED_TEG_VOLTAGE ||
+      temperatureC < -40.0f ||
+      temperatureC > 500.0f) {
+    Serial.println("WARNING: Invalid or out-of-range measurement.");
+    Serial.println("Check sensor wiring and calibration.");
+    return;
+  }
+
+  // Only meaningful when both voltage and current sensors
+  // have been calibrated and measure the same electrical port.
+  const float estimatedPowerW = tegVoltageV * tegCurrentA;
+
+  Serial.print("Estimated electrical power: ");
+  Serial.print(estimatedPowerW, 2);
+  Serial.println(" W");
+
+  if (temperatureC >= TEMP_CUTOFF_C) {
+    Serial.println("ALERT: Temperature cutoff threshold reached.");
+    Serial.println("Use independent hardware protection.");
+  } else if (temperatureC >= TEMP_WARNING_C) {
+    Serial.println("WARNING: High temperature.");
+  } else {
+    Serial.println("Status: Monitoring.");
+  }
+
+  Serial.println("PWM remains disabled.");
+}
